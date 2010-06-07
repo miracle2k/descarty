@@ -1,0 +1,70 @@
+<html><script>
+
+var URL = 'http://127.0.0.1:5000/';
+    
+// Hook into all URL change events.
+chrome.tabs.onCreated.addListener(function(tab) { 
+    submitUrlToServer(tab.url, tab.id);
+});
+chrome.tabs.onUpdated.addListener(function(tabId, changeinfo, tab) {
+    if (changeinfo.url)
+        submitUrlToServer(changeinfo.url, tab.id);        
+})
+
+
+chrome.browserAction.onClicked.addListener(function(tab) {
+    submitUrlToServer(tab.url, tab.id, {star: true});
+});
+
+
+/**
+ * Call this when a url changes. It'll ensure it's submitted to 
+ * the server, and that the GUI is properly updated along the way.
+ * 
+ * It also makes sure that if the tab in question has already 
+ * changed URLs again while waiting for a response from the server, 
+ * that we won't use the wrong state. 
+ */
+RequestsByTab = {};
+function submitUrlToServer(url, tabid, options) 
+{
+    // Only handle http and https urls. In particular, we  
+    // need to ignore chrome://.
+    if (!(url.indexOf('http') === 0)) {
+        // No longer an active request for this tab.
+        delete RequestsByTab[tabid];
+        return false;
+    }
+
+    chrome.browserAction.setBadgeText({tabId: tabid, text: '...'});
+    RequestsByTab[tabid] = url;
+    sendRequest(url, options && options.star, function(xhr) {
+        // If the tab has sent off another requset in the 
+        // meantime, don't update. 
+        if (RequestsByTab[tabid] == url) {
+            var r = JSON.parse(xhr.responseText);            
+            chrome.browserAction.setBadgeText({tabId: tabid, text: (r.starred ? 'star' : 'ok')});
+            delete RequestsByTab[tabid];
+        }
+    });
+}
+ 
+    
+function sendRequest(url, star, callback) {
+    // Send the url to the server.
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function(state) {
+        if (xhr.readyState == 4) {
+            callback(xhr);
+        }
+    };
+    data = new FormData();
+    data.append('url', url);
+    if (star)
+        data.append('star', true);
+    xhr.open('POST', URL, true)
+    xhr.send(data);
+    return xhr;
+}
+           
+</script></html>
